@@ -1,0 +1,1224 @@
+<script>
+    init['02_Asunto'] = function () {
+        AsuntoJS.preInit();
+    }
+    var AsuntoJS = {
+        /*inicio: async function(){
+          await Promise.all([
+             SpreadSheetJS.getAllFromDatabases('Perfilado'),
+             SpreadSheetJS.getAllFromDatabases('Datos_Contratos1')
+          ]).then(() => { 
+          Asunto.init({
+            FOLIO: "FU0000001"
+          });
+          
+          });
+        /*  await Promise.all([
+                        SpreadSheetJS.getAllFromDatabases('Perfilado'),
+                        SpreadSheetJS.getAllFromDatabases('Datos_Contratos1')
+                    ]).then(() => {
+                        este.loading = false;
+                        this.folio = "FU0000001";
+                        este.titulo = "Folio: " + este.folio;
+                        this.buscarContenido(este.folio);
+                        this.showState(este.folio);
+                        JS_Base_Generic.closeWaitMessage();
+                    });
+        },*/
+        folio: '',
+        reglasjuridico: '',
+        fianzasArray:[],
+        segurosArray:[],
+        juridico:'',
+        negociador:'',
+        //disabledBtn: false,
+        preInit: async function(){
+          await SpreadSheetJS.getAllFromDatabases('Archivos');
+          let archivosanexos = Object.assign([], alasql("SELECT * FROM ARCHIVOS WHERE FOLIO=? and SECCION=? and ESTATUS<>?", [AsuntoJS.folio, 'Anexos', 'ELIMINADO']))
+          
+          let reglasperfiles = {
+              isUsuario: vPage.puesto == 3 || vPage.puesto == 1 ? true : false,//usuario General
+              isNegociador: vPage.puesto == 2 || vPage.puesto == 5 || vPage.puesto == 1 ? true : false,//Negociador
+              isAbogado: vPage.puesto == 4 ? true : false,//abogado
+              estado: alasql("SELECT VALUE[Estado de asunto] FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]),
+              uExperimentado: alasql("SELECT VALUE USUARIO_EXPERIMENTADO FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]),
+              btnComentar: function (){
+                    return ((this.isUsuario&& this.estado!='Finalizado'&&this.estado!='En Revisión'&&this.estado!='Con Jurídico'&&this.uExperimentado!='Sí')||this.isNegociador&& (this.estado=='Con Negociador'||this.estado=='Pendiente')||(this.isAbogado&&this.estado=='Con Jurídico'))
+                  }
+             
+          }
+          let lecturaarchivos=false 
+           if(vPage.puesto == 2 || vPage.puesto == 4 || vPage.puesto == 5) { lecturaarchivos = true }
+           else if (!((reglasperfiles.uExperimentado=='Sí' && reglasperfiles.estado=='Pendiente') || reglasperfiles.estado=='Con Usuario' || reglasperfiles.estado=='En Revisión')){
+                lecturaarchivos = true 
+           }
+            AsuntoJS.reglasjuridico = reglasperfiles.btnComentar()
+            AsuntoJS.juridico = reglasperfiles.isAbogado
+            AsuntoJS.negociador = reglasperfiles.isNegociador
+            AsuntoJS.init(archivosanexos, lecturaarchivos, reglasperfiles)
+          
+        },
+        init: function (archanexos, lectura, reglasperfiles) {
+            vm = new Vue({
+                el: '#inner-content',
+                vuetify: new Vuetify(),
+                data: function () {
+                    return {                        
+                        datosSolicitud:{
+                           nfolio:'', sd:'', cont:'', pnegociador:false},
+                        datosLegales:{
+                           ID:'', FOLIO: AsuntoJS.folio, NUMERO_CONTRATO:'', VIGENCIA:'', TIPO_DOC:[''], NO_PRORROGAS:'',
+                           COMENTARIOS_LEGALES:'', BANDERA_COMENT_LEGALES:'', COMENTARIOS_FIANZAS:'',
+                           BANDERA_COMENT_FZ:'', COMENTARIOS_SEGUROS:'', BANDERA_COMENT_SEG:''},
+                        datosFianzas:[{TIPO_FIANZA:'', MONTO:'', VIGENCIA:''}],
+                        datosSeguros:[{TIPO_SEGURO:'',	MONTO:''}],
+                        apoderadosEmpGrp:[{ID:'', FOLIO: AsuntoJS.folio, EMPRESA:'Empresa del grupo', NOMBRE:'',APELLIDO:''},
+                                        {ID:'', FOLIO: AsuntoJS.folio, EMPRESA:'Empresa del grupo', NOMBRE:'',APELLIDO:''}],
+                        apoderadosContr:[{ID:'', FOLIO: AsuntoJS.folio, EMPRESA:'Contratista', NOMBRE:'',APELLIDO:''},
+                                        {ID:'', FOLIO: AsuntoJS.folio, EMPRESA:'Contratista', NOMBRE:'',APELLIDO:''}],
+                        isBeforeLicitacion:'',
+                        dialog: false,
+                        folio: '',
+                        titulo: '',
+                        secciones: [],
+                        tituloComentario: '',
+                        coordinadoresBBVA: [],
+                        coordinadoresContra: [],
+                        editores: [],
+                        editor: {},
+                        textAreaSeccion: [],
+                        varModal: false,
+                        asunto: '',
+                        disabledBtn: false,
+                        idSeccion: '',
+                        comentario: '',
+                        nombreBase: '',
+                        linkDescarga: '',
+                        isUsuario: reglasperfiles.isUsuario,
+                        isNegociador: reglasperfiles.isNegociador,
+                        isAbogado: reglasperfiles.isAbogado,
+                        estado: reglasperfiles.estado,
+                        btnComentar: reglasperfiles.btnComentar(),
+                        uExperimentado: reglasperfiles.uExperimentado,
+                        btnFinish:'',//aplicable solo para negociador y jurídico
+                        nombreAccion:'',
+                        sendSolicitud:'',
+                        btnSendSolicitud:'',
+                        btnSendSSJJ:'',
+                        btnSendComent:'',
+                        disabledSendSolicitud:'',
+                        btnReabrir: '',
+                        gps:'',
+                        contratista:'',
+                        companyGroup:'',
+                        fechaIni: {},
+                        fechaFin: {},
+                        newEditor: {},
+                        btnNewEditor: '',
+                        btnDeletEditor:'',
+                        enableDatos:true,
+                        linkAnexo:'',
+                        seleccionar: false,
+                        coordEnable: true,
+                        fechasEnable: true,
+                        area:'',
+                        btnGuardarCorrect:false, //bontonGuardar correcciones solo para usuarios generales
+                        fillFormat:false,//usuario experimentado
+                        subdireccion:'',//identifica carpetas e instrucciones
+                        contrato:'',//identifica carpetas e instrucciones
+                        anexos:'',
+                        archivos:'',
+                        existArchivos:false,//cambio DA
+                        archivosanexos:archanexos,
+                        showBtnTablaU:false,
+                        //subirarchivos: '',
+                        lecturaarchivos:lectura,
+                        alert:[],
+                        instrucciones:'',
+                        rules: {
+                            required: value => !!value || 'Llenar campo.',
+                            email: value => {
+                                const pattern = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+                                return pattern.test(value) || 'Correo invalido.'
+                            },
+                            telefono: value => {
+                                const pattern = /[0-9]{10}/
+                                return pattern.test(value) || 'Debe contener 10 dígitos.'
+                            },
+
+                        },
+                        tab: 0,
+                        opciones: [//agregueVD
+                             'Responsable Usuario' 
+                        ],
+                        contenidoP1:true,
+                    }
+                },
+                mounted: async function () {
+
+                    var este = this;
+                    
+                    await Promise.all([
+                        SpreadSheetJS.getAllFromDatabases('Perfilado'),
+                        SpreadSheetJS.getAllFromDatabases('Usuarios'),
+                        SpreadSheetJS.getAllFromDatabases('Datos_Contratos1'),
+                        SpreadSheetJS.getAllFromDatabases('Preguntas_FU'),
+                        SpreadSheetJS.getAllFromDatabases('Archivos')
+                    ]).then(() => {
+                        console.log('hola')
+                        este.loading = false;
+                        this.folio = AsuntoJS.folio;
+                        este.titulo = "Folio: " + AsuntoJS.folio;
+                        this.buscarContenido(AsuntoJS.folio);
+                        //JS_Base_Generic.closeWaitMessage();
+                    });
+
+                },
+                methods: {
+                     modalComentarios: function (title, base, id = '') {
+                     console.log("Estoy en modal comentarios")
+                        this.nombreAccion = vPage.puesto == 3?'Ingrese motivo para editar sección':'Agregar comentarios';//--agregueVivi
+                        this.tituloComentario = title;
+                        this.varModal = true;
+                        this.idSeccion = id;
+                        this.nombreBase = base;
+                    },
+                    finishCase: async function () {
+                   
+                        let usuario = alasql("SELECT VALUE Editores FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]).replaceAll('||', ', ');
+                        let correo = {
+                            email: usuario,
+                            title: 'Notificación asunto aprobado',
+                            folio: AsuntoJS.folio,
+                            body: 'El negociador ha revisado y aprovado sus correcciones, su asunto será canalizado al siguiente proceso',
+                            user: 'Usuario'
+                        }
+                        let datos1 = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        this.estado = datos1[0]['Estado de asunto'] = 'Licitación/Adjudicación';
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'REGISTROS', datos1, datos1[0].ROW)
+                        this.saveModificacion('Licitación/Adjudicación', 'Negociador')
+                        this.updateTables('V2')
+                        JS_Base_Generic.getContent("02_Asunto", "02_Asunto");
+                        await CorreoJS.correoPruebaNot(correo);
+                    },
+                    finishAbogado: async function(){//agregueVD
+                       let usuario = alasql("SELECT VALUE Editores FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]).replaceAll('||', ', ');
+                       let negociador = alasql("SELECT VALUE Negociador FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]).replaceAll('||', ', ');
+                        let correo = {
+                            email: usuario+', '+negociador,
+                            title: 'Notificación asunto aprobado',
+                            folio: AsuntoJS.folio,
+                            body: 'El abogado ha revisado y aprovado sus correcciones, su asunto ha finalizado el proceso',
+                            user: 'Usuario'
+                        }
+                        let datos1 = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        this.estado = datos1[0]['Estado de asunto'] = 'Finalizado';
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'REGISTROS', datos1, datos1[0].ROW)
+                        this.closeModal('Se ha finalizado correctamente el asunto', '');
+                        this.saveModificacion('Finalizado', 'Abogado')
+                        this.updateTables('final');
+                        JS_Base_Generic.getContent("02_Asunto", "02_Asunto");
+                        await CorreoJS.correoPruebaNot(correo);
+                    },
+                    finishRegExp: async function () {
+                        let items = alasql("SELECT * FROM SECCIONES WHERE ID_CONTRATO=?", [AsuntoJS.folio]);
+                        items.forEach((seccion, indx) => {
+                            items[indx].CONTENIDO = this.secciones[indx].CONTENIDO;
+                            alasql("UPDATE SECCIONES SET CONTENIDO=? where ID_SECCION=?", [this.secciones[indx].CONTENIDO, items[indx].ID_SECCION])
+                        });
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'SECCIONES', items, items[0].ROW)
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'COORDINADORES', this.coordinadoresBBVA, this.coordinadoresBBVA[0].ROW)
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'COORDINADORES', this.coordinadoresContra, this.coordinadoresContra[0].ROW)
+                        datos1 = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        this.estado = datos1[0]['Estado de asunto'] = 'Pendiente por Asignar';
+                        datos1[0].Registrar = 'Verdadero';
+                        datos1[0]["FECHA DE INICIO"] = this.fechaIni.respuesta;
+                        datos1[0]["FECHA DE TERMINO"] = this.fechaFin.respuesta;
+                        datos1[0].USUARIO_EXPERIMENTADO = datos1[0].USUARIO_EXPERIMENTADO == 'Sí'? "Sí, llenó Formato Único":datos1[0].USUARIO_EXPERIMENTADO;
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'REGISTROS', datos1, datos1[0].ROW)
+                        this.saveModificacion('Pendiente por Asignar', 'Usuario Experimentado');
+                        this.closeModal('Se ha enviado el registro', 'En breve se le asignará un Negociador para revisar el Formato único.');
+                        JS_Base_Generic.getContent("01_Busqueda", "01_Busqueda");
+                        this.arbolSubNegociadores(datos1[0]);
+                        SpreadSheetJS.getSecciones('ASUNTOS', 'REGISTROS', 'COORDINADORES', 'SECCIONES', AsuntoJS.folio)
+                    },
+                    arbolSubNegociadores:function (registro){
+                        let correoAdmn;
+                        let fecha = moment(new Date()).format('DD/MM/YYYY')
+                        console.log("fecha"+fecha)
+                        switch(this.subdireccion){
+                        case "Tecnología":
+                        //if (registro["Contrato"]=="Compraventa")
+                             correoAdmn="danielalejandro.rodriguez.res.contractor@bbva.com";//correo= "olga.mejia@bbva.com";
+                        break;
+                        case "Compras":
+                        //if (registro["Contrato"]=="Prestación de servicios")
+                             correoAdmn="vivianadaniela.pedroza.contractor@bbva.com";//correo="lauracarmina.alcala@bbva.com";
+                        break
+                        default:
+                             correoAdmn="vivianadaniela.pedroza.contractor@bbva.com, danielalejandro.rodriguez.res.contractor@bbva.com";
+                        break
+                        }                        
+                        console.log("correoAdmn "+correoAdmn)
+                        console.log("registo "+registro)
+                        let correo = {
+                            email: correoAdmn,
+                            title: 'Notificación de modificacion del usuario',
+                            folio: AsuntoJS.folio,
+                            body:  {fecha:fecha , subdireccion:this.subdireccion, contrato:this.contrato, correo:sessionStorage.NB_CORREO, empGrupo:registro['EMPRESA DEL GRUPO'], empCont:registro['CONTRATISTA'], url:this.urlsite, isAbogado:false},
+                            user: 'Negociador'
+                        };
+                        
+                        console.log("fecha"+correo.body.fecha)
+                        CorreoJS.correoAsignacion(correo)
+                    },
+                    sendNotificationNegociador: async function () {
+                         SpreadSheetJS.getAllFromDatabases('Datos_Contratos1');
+                        let usuario = alasql("SELECT VALUE Negociador FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]).replaceAll('||', ', ');
+                        let correo = {
+                            email: usuario,
+                            title: 'Notificación de modificacion del usuario',
+                            folio: AsuntoJS.folio,
+                            body: 'El usuario modificó las secciones correspondientes, basadas en los comentarios realizados, favor de validar los cambios en el sigueinte link',
+                            user: 'Negociador'
+                        }
+                        /*
+                        let items = alasql("SELECT * FROM SECCIONES WHERE ID_CONTRATO=?", [AsuntoJS.folio]);
+                        items.forEach((seccion, indx) => {
+                            if (items[indx].BANDERA_COMENTARIOS) {
+                                items[indx].CONTENIDO = this.secciones[indx].CONTENIDO;
+                                items[indx].BANDERA_COMENTARIOS = '';
+                                alasql("UPDATE SECCIONES SET CONTENIDO=? where ID_SECCION=?", [this.secciones[indx].CONTENIDO, items[indx].ID_SECCION])
+                            }
+                            console.log("items[indx].CONTENIDO " + items[indx].TITULO)
+                            console.log("items[indx].CONTENIDO " + items[indx].CONTENIDO)
+                        });
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'SECCIONES', items, items[0].ROW)
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'COORDINADORES', this.coordinadoresBBVA, this.coordinadoresBBVA[0].ROW)
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'COORDINADORES', this.coordinadoresContra, this.coordinadoresContra[0].ROW)
+                        datos1 = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        this.estado = datos1[0]['Estado de asunto'] = 'Con Negociador';
+                        datos1[0].Registrar = 'Verdadero';
+                        datos1[0].BANDERA_COMENT_FECHA = '';
+                        datos1[0].BANDERA_COMENT_COORD = '';
+                        datos1[0].BANDERA_COMENTARIOS_ANEXOS = '';
+                        datos1[0]["FECHA DE INICIO"] = this.fechaIni.respuesta;
+                        datos1[0]["FECHA DE TERMINO"] = this.fechaFin.respuesta;
+                        
+                        correo.body= datos1[0].BANDERA_SOLICITUD_MODIFICACION!=''?'El usuario modificó las secciones correspondientes, basadas en los comentarios realizados y ha realizado una solicitud de cambio del Formato Único, favor de ingresar al link adjunto en el presente correo, para visualizar las correciones y secciones que desea modificar':
+                        correo.body;
+                        datos1[0].BANDERA_SOLICITUD_MODIFICACION = '';
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'REGISTROS', datos1, datos1[0].ROW)
+                        saveSecciones(true,correo);
+                        JS_Base_Generic.closeWaitMessage();
+                        
+                        this.closeModal('Se han enviado las correcciones ', 'En breve el Negociador recibirá la notificación.');
+                        JS_Base_Generic.getContent("02_Asunto", "02_Asunto");
+                        */
+                        
+                        
+                        let correoObj = this.saveSecciones(true,correo,'Se han enviado las correcciones ', 'En breve el Negociador recibirá la notificación.');
+                        console.log('sendNotificationNegociador')
+                        
+                           console.log("correo.body"+correoObj.body)
+                           console.log("correo.email"+correoObj.email)
+                           console.log("correo.folio"+correoObj.folio)
+                           console.log("correo.title"+correoObj.title)
+                        //await CorreoJS.correoPruebaNot(correoObj);
+                        await initJS.sleep(5000);
+                        SpreadSheetJS.getSecciones('ASUNTOS', 'REGISTROS', 'COORDINADORES', 'SECCIONES', AsuntoJS.folio)
+                    },
+                    sendSolicitudNeg: async function () {
+                        let asunto = alasql("SELECT *  FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        let correo='';
+                        let tipoU = '';
+                        if(this.isBeforeSolicitud){
+                           correo = asunto[0].Negociador.replaceAll('||', ', ')
+                           tipoU ='Negociador'
+                        }else{
+                          correo = asunto[0].Editores.replaceAll('||', ', ')
+                          tipoU ='Abogado'
+                        }
+                        let correoObj = {
+                            email: correo,//user                        
+                            title: 'Notificación de solicitud de cambio ',
+                            folio: AsuntoJS.folio,
+                            body: 'El usuario ha realizado una solicitud de cambio del Formato Único, favor de ingresar al link adjunto en el presente correo, para visualizar las secciones que desea modificar',
+                            user: tipoU
+                        }
+                        asunto[0].BANDERA_SOLICITUD_MODIFICACION ='';
+                        //alasql("UPDATE REGISTROS SET BANDERA_SOLICITUD_MODIFICACION=? WHERE FOLIO=?", [asunto[0].BANDERA_SOLICITUD_MODIFICACION, AsuntoJS.folio])
+                        this.closeModal('Se han enviado las socitudes', 'En breve el '+tipoU+' recibira la notificación.');
+                        this.saveModificacion('Solicitud de modificación', 'Usuario');
+                        JS_Base_Generic.getContent("02_Asunto", "02_Asunto");
+                        await CorreoJS.correoPruebaNot(correoObj);
+                        await initJS.sleep(5000);
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'REGISTROS', asunto, asunto[0].ROW)
+                    },
+                    saveSecciones: async function (bool=false,correo='',title='Se han guardado los cambios',des='') {
+                        
+                        JS_Base_Generic.openWaitMessage(); 
+                        let items = alasql("SELECT * FROM SECCIONES WHERE ID_CONTRATO=?", [AsuntoJS.folio]);
+                        items.forEach((seccion, indx) => {
+                            if(!items[indx].TITULO.includes('R3SPONS4BL3')){
+                                items[indx].CONTENIDO = this.secciones[indx].CONTENIDO;
+                                console.log('items[indx].CONTENIDO '+items[indx].TITULO)
+                                if (items[indx].BANDERA_COMENTARIOS&&bool) {
+                                     items[indx].BANDERA_COMENTARIOS = '';
+                                     alasql("UPDATE SECCIONES SET CONTENIDO=?, BANDERA_COMENTARIOS=? where ID_SECCION=?", [this.secciones[indx].CONTENIDO, items[indx].BANDERA_COMENTARIOS, items[indx].ID_SECCION])
+                                }
+                                alasql("UPDATE SECCIONES SET CONTENIDO=? where ID_SECCION=?", [this.secciones[indx].CONTENIDO, items[indx].ID_SECCION])
+                                console.log('UPDATE items[indx].CONTENIDO '+items[indx].TITULO)
+                            }
+                        });
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'SECCIONES', items, items[0].ROW)
+                        console.log('SECCIONES ')
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'COORDINADORES', this.coordinadoresBBVA, this.coordinadoresBBVA[0].ROW)
+                        console.log('COORDINADORES ')
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'COORDINADORES', this.coordinadoresContra, this.coordinadoresContra[0].ROW)
+                        console.log('COORDINADORES ')
+                        datos1 = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        console.log('REGISTROS ')
+                        datos1[0]["FECHA DE INICIO"] = this.fechaIni.respuesta;
+                        datos1[0]["FECHA DE TERMINO"] = this.fechaFin.respuesta;
+                        datos1[0]["GPS"]= this.gps
+                        datos1[0]["EMPRESA DEL GRUPO"]= this.contratista
+                        datos1[0]["CONTRATISTA"]= this.companyGroup
+                        if(bool&&this.isBeforeLicitacion){
+                           this.estado = datos1[0]['Estado de asunto'] = 'Con Negociador';
+                           datos1[0].Registrar = 'Verdadero';
+                           datos1[0].BANDERA_COMENTARIOS_ANEXOS = '';
+                           correo.body= datos1[0].BANDERA_SOLICITUD_MODIFICACION!=''?'El usuario modificó las secciones correspondientes, basadas en los comentarios realizados y ha realizado una solicitud de cambio del Formato Único, favor de ingresar al link adjunto en el presente correo, para visualizar las correciones y secciones que desea modificar':
+                           correo.body;
+                           datos1[0].BANDERA_SOLICITUD_MODIFICACION = '';
+                           datos1[0].BANDERA_COMENT_DATOS = ''; //cambio DA
+                           this.saveModificacion('Con Negociador', 'Usuario');
+                          
+                        }
+                        if(bool){
+                         await CorreoJS.correoPruebaNot(correo);
+                        }
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'REGISTROS', datos1, datos1[0].ROW)
+                        console.log("REGISTROS")
+                        this.closeModal(title, des);
+                        
+                        JS_Base_Generic.getContent("02_Asunto", "02_Asunto");
+                    },
+                    sendNotificationUser: async function () {
+                        let tipoU = this.isAbogado? 'Abogado':'Negociador'
+                        let datos1 = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        let correo = '';
+                        let asignado = '';
+                        let edo = '';
+                        let identificaUsuario = 'Usuario'
+                        if(this.isAbogado){ 
+                            identificaUsuario+='/Negociador'
+                            let comentANegociador = alasql('SELECT * FROM SECCIONES S JOIN DATOS_LEGALES D ON S.ID_CONTRATO = D.FOLIO WHERE D.FOLIO=? AND (D.BANDERA_COMENT_LEGALES  = "true" OR D.BANDERA_COMENT_FZ="true" OR D.BANDERA_COMENT_SEG="true" OR (S.BANDERA_COMENTARIOS= "true" AND S.TITULO LIKE "%R3SPONS4BL3%"))',[AsuntoJS.folio])
+                            let comentAUsuario =alasql('SELECT * FROM SECCIONES S JOIN REGISTROS R ON S.ID_CONTRATO = R.FOLIO WHERE R.FOLIO=? AND (R.BANDERA_COMENT_DATOS  = "true" OR R.BANDERA_COMENTARIOS_ANEXOS="true" OR (S.BANDERA_COMENTARIOS= "true" AND S.TITULO NOT LIKE "%R3SPONS4BL3%"))',[AsuntoJS.folio])
+                            edo = 'En Revisión';
+                            if(comentANegociador){
+                                correo= alasql('SELECT VALUE Negociador from REGISTROS where FOLIO= ?',[AsuntoJS.folio]).replaceAll('||', ', ');
+                                asignado= 'Con Negociador'
+                            }
+                            if(comentAUsuario){
+                                correo+= correo? ',':'';
+                                correo+=alasql('SELECT VALUE Editores from REGISTROS where FOLIO= ?',[AsuntoJS.folio]).replaceAll('||', ', ');
+                                asignado= asignado?asignado+',Con Usuario':'Con Usuario'
+                            }
+                            datos1[0].USUARIO_ASIGNADO= asignado;
+                        }else{
+                           correo=alasql('SELECT VALUE Editores from REGISTROS where FOLIO= ?',[AsuntoJS.folio]).replaceAll('||', ', ');
+                           edo = 'Con Usuario'
+                        }
+                        datos1[0]['Estado de asunto']=edo;
+                        datos1[0].RECORDATORIO = moment(new Date()).format('DD/MM/YYYY');
+                        datos1[0].BANDERA_RECORDATORIO = 'true'
+                        let correoObj = {
+                            email: correo,//user                        
+                            title: 'Notificación de comentarios agregados',
+                            folio: AsuntoJS.folio,
+                            body: 'El '+tipoU+' agregó cometarios al asunto, favor de ingresar al link adjunto en el presente correo, para realizar las correcciones correspondientes',
+                            user: identificaUsuario
+                        }
+                        this.estado = edo;
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'REGISTROS', datos1, datos1[0].ROW)
+                        this.closeModal('Se han enviado los comentarios', 'En breve el '+identificaUsuario+' recibira la notificación.');
+                        this.saveModificacion(edo, tipoU);
+                        JS_Base_Generic.getContent("02_Asunto", "02_Asunto");
+                        await CorreoJS.correoPruebaNot(correoObj);
+                    },
+                    validadatos: function(){
+                         let items = alasql("SELECT * FROM SECCIONES WHERE ID_CONTRATO=? and TITULO LIKE '%R3SPONS4BL3%'", [AsuntoJS.folio]);
+                         items.forEach(seccion => {
+                               console.log(seccion.TITULO)
+                         }
+                         console.log(this.datosLegales)
+                    }
+                    ,
+                    saveSolicitud: async function(bool=false){//agregue
+                        JS_Base_Generic.openWaitMessage(); 
+                        let items = alasql("SELECT * FROM SECCIONES WHERE ID_CONTRATO=? and TITULO LIKE '%R3SPONS4BL3%'", [AsuntoJS.folio]);
+                        items.forEach((seccion, indx) => {
+                             let array = this.secciones.filter(s=> s.ID_SECCION==items[indx].ID_SECCION)
+                             if(array.length!=0){
+                                items[indx].CONTENIDO = array[0].CONTENIDO;
+                                if (items[indx].BANDERA_COMENTARIOS&&bool) {
+                                     items[indx].BANDERA_COMENTARIOS = '';
+                                     alasql("UPDATE SECCIONES SET CONTENIDO=?, BANDERA_COMENTARIOS=? where ID_SECCION=?", [array[0].CONTENIDO, items[indx].BANDERA_COMENTARIOS, items[indx].ID_SECCION])
+                                }
+                                alasql("UPDATE SECCIONES SET CONTENIDO=? where ID_SECCION=?", [array[0].CONTENIDO, items[indx].ID_SECCION])
+                                SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'SECCIONES', [items[indx]], items[indx].ROW)
+                             }
+                        });
+                        let datos = alasql("SELECT * FROM DATOS_LEGALES WHERE FOLIO=?", [this.folio]);
+                        if(datos.length==0){
+                           SpreadSheetJS.saveCatalogo('Datos_Contratos1', 'DATOS_LEGALES', 'ID', [this.datosLegales])
+                        }else{
+                           if(bool){//AgregueVV
+                                this.datosLegales.BANDERA_COMENT_LEGALES ='';//AgregueVV
+                                this.datosLegales.BANDERA_COMENT_FZ = '';//AgregueVV
+                                this.datosLegales.BANDERA_COMENT_SEG = '';//AgregueVV
+                           }//AgregueVV
+                           this.datosLegales.ID=datos[0].ID
+                           this.datosLegales.ROW=datos[0].ROW
+                           SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'DATOS_LEGALES', [this.datosLegales], this.datosLegales.ROW)
+                        }
+                        let apoderados = alasql("SELECT * FROM APODERADOS WHERE FOLIO=? and EMPRESA='Empresa del grupo'", [this.folio]);
+                        if(apoderados.length==0){
+                           apoderados = this.apoderadosEmpGrp.concat(this.apoderadosContr)
+                           SpreadSheetJS.saveCatalogo('Datos_Contratos1', 'APODERADOS', 'ID', apoderados)
+                        }else{
+                           this.apoderadosEmpGrp.forEach((apdorado,index)=>{
+                               this.apoderadosEmpGrp[index].ID=apoderados[index].ID;
+                               this.apoderadosEmpGrp[index].ROW=apoderados[index].ROW;  
+                           })
+                           let apoderados2 = alasql("SELECT * FROM APODERADOS WHERE FOLIO=? and EMPRESA='Contratista'", [this.folio]);
+                           this.apoderadosContr.forEach((apdorado,index)=>{
+                               this.apoderadosContr[index].ID=apoderados2[index].ID;
+                               this.apoderadosContr[index].ROW=apoderados2[index].ROW;  
+                           })
+                           apoderados = this.apoderadosEmpGrp.concat(this.apoderadosContr)
+                           SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'APODERADOS', apoderados, apoderados[0].ROW)
+                        }
+                         await initJS.sleep(5000);
+                         this.cargaFianzas();
+                         this.cargaSeguros();
+                         //JS_Base_Generic.closeWaitMessage(); 
+                        //SpreadSheetJS.getAllFromDatabases('Datos_Contratos1');
+                        JS_Base_Generic.getContent("02_Asunto", "02_Asunto");
+                    },
+                    cargaFianzas: async function(){ 
+                      console.log("ESTOY EN CARGA FIANZAS")
+                      if(AsuntoJS.fianzasArray.length!=0){
+                           console.log("ENTRE A FIANZAS IF") 
+                           let busquedaF = alasql("SELECT * FROM FIANZAS WHERE FOLIO=?", [this.folio]);
+                           let nuevaF = [];
+                           let noFilas = [];
+                           let existenteF = []; 
+                           let objF={};
+                           console.log("SOY FIANZASARRAY")
+                           console.log(AsuntoJS.fianzasArray)
+                           console.log("SOY BUSQUEDAF")
+                           console.log(busquedaF)
+                           AsuntoJS.fianzasArray.forEach((fianza,indx) =>{
+                              if(!fianza.ID){//nuevo
+                                nuevaF.push(fianza)
+                                console.log("nueva f "+fianza.TIPO_FIANZA)
+                              }else{//existentes
+                                objF = busquedaF.filter(f=>f.ID==fianza.ID)[0];
+                                objF.MONTO = fianza.MONTO 
+                                objF.VIGENCIA = fianza.VIGENCIA
+                                existenteF.push(objF)
+                                
+                                console.log("existente f "+objF.TIPO_FIANZA)
+                                console.log("SOY OBJETO FIANZA")
+                                console.log(objF)
+                                SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'FIANZAS', [objF], objF.ROW)
+                              }
+                           })
+                           console.log("SOY EXISTENTEF")
+                           console.log(existenteF)
+                            await initJS.sleep(5000)
+                            console.log("TERMINE EL SLEEP")
+                           let eliminarF = alasql('SELECT * FROM FIANZAS WHERE ID NOT IN ('+'"'+existenteF.map(e => e.ID).join('", "')+'"'+') and FOLIO ="'+AsuntoJS.folio+'"')
+                           console.log("SOY ELIMINARF")
+                           console.log(eliminarF)
+                           if(eliminarF.length!=0){
+                               console.log("SOY ELIMINARF")
+                               console.log(eliminarF)
+                              eliminarF.forEach(fianzaD=>{
+                                  console.log("VOY A ELIMINAR")
+                                  console.log(fianzaD)
+                                 SpreadSheetJS.deleteCatalogo('Datos_Contratos1', 'FIANZAS', 'ID', fianzaD.ID) 
+                                 alasql('DELETE from FIANZAS where ID=?',[fianzaD.ID])
+                                console.log("fianzaD "+fianzaD.TIPO_FIANZA)
+                                 console.log("hizo deleteCatalogo")
+                              })
+                                  await initJS.sleep(5000);
+                           }
+                           if( nuevaF.length!=0){
+                                 console.log("ESTOY EN IF NUEVAF")
+                              await SpreadSheetJS.saveCatalogo('Datos_Contratos1', 'FIANZAS', 'ID', nuevaF);
+                              
+                           } 
+                           
+                       }
+                    },
+                    cargaSeguros: async function(){ 
+                      console.log("ESTOY CARGANDO SEGUROS")
+                      if(AsuntoJS.segurosArray.length!=0){
+                           let busquedaS = alasql("SELECT * FROM SEGUROS WHERE FOLIO=?", [this.folio]);
+                           let nuevaS = [];
+                           let existenteS = []; 
+                           let objS={};
+                           AsuntoJS.segurosArray.forEach((seguro,indx) =>{
+                              if(seguro.ID==''){
+                                nuevaS.push(seguro)
+                                console.log('nuevo seg '+nuevaS.TIPO_SEGURO)
+                              }else{
+                                objS = busquedaS.filter(f=>f.ID==seguro.ID)[0];
+                                objS.MONTO = seguro.MONTO 
+                                objS.COMPANIA = seguro.COMPANIA
+                                existenteS.push(objS)
+                                console.log('objS seg '+objS.TIPO_SEGURO)
+                                SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'SEGUROS', [objS], objS.ROW)
+                              }
+                           })
+                           
+                           let eliminarS = alasql('SELECT * FROM SEGUROS WHERE ID NOT IN ('+'"'+existenteS.map(e => e.ID).join('", "')+'"'+') and FOLIO ="'+AsuntoJS.folio+'"')
+                           console.log("ESTOY ELIMINANDO")
+                           
+                            await initJS.sleep(5000)
+                           if(eliminarS.length!=0){
+                               eliminarS.forEach(seguroD=>{
+                                  console.log('seguroD seg '+seguroD.TIPO_SEGURO)
+                                  SpreadSheetJS.deleteCatalogo('Datos_Contratos1', 'SEGUROS', 'ID', seguroD.ID) 
+                                 
+                                 alasql('DELETE from SEGUROS where ID=?',[seguroD.ID])
+                                  
+                                console.log("borra f "+objS.seguroD)
+                               })
+                               await initJS.sleep(5000);
+                           }
+                           if ( nuevaS.length!=0 ){
+                                await SpreadSheetJS.saveCatalogo('Datos_Contratos1', 'SEGUROS', 'ID', nuevaS);
+                           }
+                       }
+                    },
+                    sendSolicitudSSJJ: async function (){//agregueVD
+                        let estadoPrevio = this.estado;
+                        console.log("voy a enviar la solicitud")
+                        datos1 = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        if(this.estado=='En Revisión'){
+                            let usuario = vPage.puesto==3?'Con Usuario':'Con Negociador'
+                            datos1[0].USUARIO_ASIGNADO = datos1[0].USUARIO_ASIGNADO.split(',')
+                            datos1[0].USUARIO_ASIGNADO.splice(datos1[0].USUARIO_ASIGNADO.indexOf(usuario),1);
+                            datos1[0].USUARIO_ASIGNADO.join(',')
+                            
+                        } if(datos1[0].USUARIO_ASIGNADO==''){
+                            this.estado = datos1[0]['Estado de asunto'] = 'Con Jurídico';
+                            let abogado = alasql("SELECT VALUE Abogados FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]).replaceAll('||', ', ');
+                            if(abogado==''){
+                               abogado = this.asignarAbogado();
+                               datos1[0].Abogados = abogado;
+                            }
+                            let correo = {
+                                email: abogado,
+                                title: 'Notificación de modificacion del usuario',
+                                folio: AsuntoJS.folio,
+                                body: 'Se han realizado las correcciones del asunto con base a los comentarios realizados por SSJJ, favor de ingresar al link adjunto en el presente correo, para visualizar las modificaciones',
+                                user: 'Jurídico'
+                            };
+                            if(estadoPrevio=='Licitación/Adjudicación'){ 
+                                  
+                        console.log("SI ENTRE A LICITACION")
+                                 this.saveSecciones()
+                                 this.saveSolicitud()
+                                  console.log("SI HICE LOS DOS METODOS")
+                                 let datosU = alasql("SELECT * FROM USUARIOS WHERE EMAIL=?", [abogado])
+                                 datosU[0].FOLIOS += "," + AsuntoJS.folio;
+                                 datosU[0].FH_MODIFICACION = moment(new Date()).format('DD/MM/YYYY');
+                                 SpreadSheetJS.updateCatalogo('Usuarios', 'USUARIOS', datosU, datosU[0].ROW)
+                                 console.log("SI ACTUALICE")
+                                 let fecha = moment(new Date()).format('DD/MM/YYYY')
+                                 correo.body = {fecha:fecha , subdireccion:this.subdireccion, contrato:this.contrato, correo:datos1[0].Editores.replaceAll('||', ', '), empGrupo:datos1[0]['EMPRESA DEL GRUPO'], empCont:datos1[0]['CONTRATISTA'], url:this.urlsite, isAbogado:true},
+                                 console.log("SI HICE EL CORREO DEL BODY")
+                                 CorreoJS.correoAsignacion(correo)
+                           }else{
+                                if(isUsuario){
+                                    correo = this.saveSecciones(true,correo,'Se han enviado las correcciones ', 'En breve el Abogado recibirá la notificación.');
+                                    this.saveModificacion('this.estado', 'Usuario');
+                                }else{
+                                   this.saveSolicitud(true);
+                                   this.saveModificacion('this.estado', 'Usuario');
+                               }
+                                 await CorreoJS.correoPruebaNot(correo);
+                           }
+                        }
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'REGISTROS', datos1, datos1[0].ROW)
+                        console.log("SEGUNDA ACTUALIZACION DE CATALOGO")
+                        this.closeModal('Se han enviado los cambios', 'En breve el abogado recibira la notificación.');
+                        JS_Base_Generic.getContent("02_Asunto", "02_Asunto");
+                        
+                        
+                    },
+                    asignarAbogado:function(){//agregueVD
+                         let abogadosDisponibles= alasql('Select * from ABOGADOS where SUBDIRECCION=? and NUMERO_CASOS IN (select MIN(NUMERO_CASOS) as numero from ABOGADOS where SUBDIRECCION=?) ORDER BY FECHA_ASIGNACION limit 1',[this.subdireccion, this.subdireccion])
+                         abogadosDisponibles[0].NUMERO_CASOS++;
+                         abogadosDisponibles[0].FECHA_ASIGNACION = moment(new Date()).format('DD/MM/YYYY');
+                         SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'ABOGADOS', abogadosDisponibles, abogadosDisponibles[0].ROW)
+                         return abogadosDisponibles[0].CORREO;
+                    },
+                    agregarNuevoEditor: async function () {
+                        const pattern = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+                        const isNotEmpty = !!this.newEditor.noEmpleado && !!this.newEditor.nombre && !!this.newEditor.email
+
+                        if (isNotEmpty && pattern.test(this.newEditor.email)) {
+                            let datos = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio])
+                            let repetido = datos[0].Editores.split("||");
+                            repetido = repetido.indexOf(this.newEditor.email)
+                            if (repetido == "-1") {//NUEVO USUARIO en base REGISTROS, se agrega como editor
+                                datos[0].Editores += datos[0].Editores == "" ? this.newEditor.email : "||" + this.newEditor.email;
+                                SpreadSheetJS.updateCatalogo('Datos_Contratos1', "REGISTROS", datos, datos[0].ROW)
+                                let datosU = alasql("SELECT * FROM USUARIOS WHERE EMAIL=?", [this.newEditor.email])
+                                if (!datosU[0]) {//NUEVO USUARIO en base USUARIOS
+                                    let usuario = {
+                                        ID_USUARIO: '',
+                                        USUARIO: this.newEditor.noEmpleado,
+                                        NOMBRE: this.newEditor.nombre,
+                                        EMAIL: this.newEditor.email,
+                                        ID_PERFIL: 2,
+                                        ID_PUESTO: 3,
+                                        FH_CREACION: moment(new Date()).format('DD/MM/YYYY'),
+                                        ACTIVO: 1, FH_BAJA: "", FH_MODIFICACION: "", FOLIOS: AsuntoJS.folio
+                                    }
+                                    SpreadSheetJS.saveCatalogo('Usuarios', 'USUARIOS', "ID_USUARIO", [usuario])
+                                } else {//USUARIO EXISTENTE en base USUARIOS, se agrega el FOLIO
+                                    datosU[0].FOLIOS += "," + AsuntoJS.folio;
+                                    datosU[0].FH_MODIFICACION = moment(new Date()).format('DD/MM/YYYY');
+                                    SpreadSheetJS.updateCatalogo('Usuarios', 'USUARIOS', datosU, datosU[0].ROW)
+                                }
+                                
+                                alasql("UPDATE REGISTROS SET Editores =? WHERE FOLIO=Editores", [datos[0].Editores, AsuntoJS.folio]);
+                                let correo={ email:this.newEditor.email,//user                        
+                                title:'Seguimiento Formato único',
+                                folio: AsuntoJS.folio,
+                                body:'Se te ha asignado un nuevo asunto de Formato Único con folio "'+AsuntoJS.folio+'", ingresa al siguiente link para poder visualizarlo',
+                                user: 'Usuario'
+                                }
+                                this.emptyNewEditor();
+                                await CorreoJS.correoPruebaNot(correo);
+                                
+                            } else {//USUARIO EXISTENTE en base REGISTROS ya está como EDITOR
+                                this.modalState(
+                                    "Correo duplicado",
+                                    "icon-alert",
+                                    "El correo " + this.newEditor.email, + " ya está registrado")
+                            }
+                        }
+                    },
+                    addTable: function(name){
+                        let linksheet = alasql("SELECT VALUE LINK FROM SECCIONES where ID_CONTRATO=? and TITULO LIKE ?", [this.folio,"%"+name+"%"]);
+                        if(linksheet){
+                           window.open(linksheet, "_blank", "toolbar=yes,scrollbars=yes,resizable=yes,top=500,left=500,width=700,height=500");
+
+
+                        }else{
+                           let link = alasql("SELECT VALUE Carpeta FROM ASUNTOS where ID=?", [this.folio]);
+                           SpreadSheetJS.createTable(link, name,'Tablas',this.folio);
+                           //JS_Base_Generic.getContent("02_Asunto", "02_Asunto");
+                        }
+  
+                    },
+                    borrarEditor: function(){
+                        this.btnDeletEditor=true;
+                        let editores = alasql("SELECT VALUE Editores FROM REGISTROS where FOLIO=?", [this.folio]);
+                        editores =editores.split('||');
+                        editores.splice(editores.indexOf(sessionStorage.NB_CORREO),1);
+                        editores = "'"+editores.join(',')+"'";
+                       let datos = alasql("SELECT NOMBRE FROM USUARIOS where EMAIL IN (" + editores + ")");
+                        this.editores = datos.map(obj => { return obj.NOMBRE });
+                        this.editores.sort();
+                    },
+                    showInfoEditor: function () {
+                    
+                        this.seleccionar = true;
+                        this.editor.correo = alasql("SELECT VALUE EMAIL FROM USUARIOS where NOMBRE=? ", [this.editor.nombre]);
+                        this.editor.noEmpleado = alasql("SELECT VALUE USUARIO FROM USUARIOS where NOMBRE=? ", [this.editor.nombre]);
+                    },
+                    deleteEditor:function(){
+                        let registro = alasql('Select * from USUARIOS where EMAIL=?', [this.editor.correo]);
+                        let folios=registro[0].FOLIOS.split(',');
+                        folios.splice(folios.indexOf(this.folio),1);
+                        registro[0].FOLIOS = folios.join(',')
+                        SpreadSheetJS.updateCatalogo('Usuarios', 'USUARIOS', registro, registro[0].ROW)
+                        alasql("UPDATE USUARIOS SET FOLIOS=? WHERE EMAIL=?", [registro[0].FOLIOS, registro[0].EMAIL]);
+                        let datosReg = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [this.folio])
+                        let editor= datosReg[0].Editores.split('||');
+                        editor.splice(editor.indexOf(this.editor.correo),1);
+                        datosReg[0].Editores = editor.join('||')
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'REGISTROS', datosReg, datosReg[0].ROW)
+                        alasql("UPDATE REGISTROS SET Editores=? WHERE FOLIO=?", [datosReg[0].editor, this.folio]);
+                        this.saveModificacion("Eliminar Editor",sessionStorage.NB_CORREO);
+                        this.modalStardte("Se ha eliminado el editor con exito",'icon-rightgreen')
+                        JS_Base_Generic.getContent("02_Asunto", "02_Asunto");
+                        this.emptyEditor();
+                    },
+                    emptyEditor: function () {
+                        this.seleccionar = false;
+                        this.editor={};
+                        this.btnDeletEditor=false;
+                    },
+                    emptyNewEditor: function () {
+                        this.newEditor = {};
+                        this.btnNewEditor = false;
+                    },
+                   agregarComentario: function () {                        
+                        if (this.comentario == '')
+                            return;
+                        let datos1 = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        let base = 'REGISTROS';
+                        switch (this.nombreBase) {
+
+                            case 'SECCIONES':
+                                
+                                let registros = datos1;                                
+                                datos1 = alasql("SELECT * FROM SECCIONES WHERE ID_SECCION=?", [this.idSeccion]);
+                                if(this.isUsuario){//Usuario
+                                     datos1[0].BANDERA_SOLICITUD = this.comentario;
+                                     console.log("datos1[0].BANDERA_SOLICITUD"+datos1[0].BANDERA_SOLICITUD)
+                                     alasql("UPDATE SECCIONES SET BANDERA_SOLICITUD=? WHERE ID_SECCION=?", [datos1[0].BANDERA_SOLICITUD, this.idSeccion]);
+                                }
+                                else if (this.isAbogado){
+                                      console.log("Entre a is abogado en seccion")
+                                     datos1[0].BANDERA_SOLICITUD = '';
+                                     datos1[0].COMENTARIOS_JURIDICO += datos1[0].COMENTARIOS_JURIDICO == "" ? this.comentario : "||" + this.comentario
+                                     datos1[0].BANDERA_COMENTARIOS = 'true';
+                                     alasql("UPDATE SECCIONES SET COMENTARIOS_JURIDICO = ?, BANDERA_COMENTARIOS = ? WHERE ID_SECCION=?", [datos1[0].COMENTARIOS_JURIDICO, 'true', this.idSeccion]);                               
+                                }else{
+                                     datos1[0].BANDERA_SOLICITUD = '';
+                                     datos1[0].COMENTARIOS += datos1[0].COMENTARIOS == "" ? this.comentario : "||" + this.comentario
+                                     datos1[0].BANDERA_COMENTARIOS = 'true';
+                                     alasql("UPDATE SECCIONES SET COMENTARIOS = ?, BANDERA_COMENTARIOS = ? WHERE ID_SECCION=?", [datos1[0].COMENTARIOS, 'true', this.idSeccion]);
+                                    }
+                                base = 'SECCIONES'
+                                break;
+                            /*case 'COORDINADORES':
+                                datos1[0].COMENTARIOS_COORDINADORES += datos1[0].COMENTARIOS_COORDINADORES == "" ? this.comentario : "||" + this.comentario
+                                datos1[0].BANDERA_COMENT_COORD = 'true';
+                                alasql("UPDATE REGISTROS SET COMENTARIOS_COORDINADORES = ?, BANDERA_COMENT_COORD = ? WHERE FOLIO=?", [ datos1[0].COMENTARIOS_COORDINADORES, 'true', AsuntoJS.folio]);
+                                break;
+                            case 'FECHAS':
+                                datos1[0].COMENTARIOS_FECHAS += datos1[0].COMENTARIOS_FECHAS == "" ? this.comentario : "||" + this.comentario
+                                datos1[0].BANDERA_COMENT_FECHA = 'true';
+                                alasql("UPDATE REGISTROS SET COMENTARIOS_FECHAS = ?, BANDERA_COMENT_FECHA = ? WHERE FOLIO=?", [datos1[0].COMENTARIOS_FECHAS, 'true', AsuntoJS.folio]);
+                                break;*/
+                            case 'DATOS':
+                               if(this.isAbogado){
+                               console.log("Entre a is abogado en datos")
+                                 datos1[0].COMENTARIOS_JURIDICO_DATOS += datos1[0].COMENTARIOS_JURIDICO_DATOS == "" ? this.comentario : "||" + this.comentario;
+                                 datos1[0].BANDERA_COMENT_DATOS = 'true';
+                                 alasql("UPDATE REGISTROS SET COMENTARIOS_JURIDICO_DATOS = ?, BANDERA_COMENT_DATOS = ? WHERE FOLIO=?", [datos1[0].COMENTARIOS_JURIDICO_DATOS, 'true', AsuntoJS.folio]);
+                               }else{
+                                 datos1[0].COMENT_DATOS += datos1[0].COMENT_DATOS == "" ? this.comentario : "||" + this.comentario;
+                                 datos1[0].BANDERA_COMENT_DATOS = 'true';
+                                 alasql("UPDATE REGISTROS SET COMENT_DATOS = ?, BANDERA_COMENT_DATOS = ? WHERE FOLIO=?", [datos1[0].COMENT_DATOS, 'true', AsuntoJS.folio]);
+                                 }
+                               break;
+                            case 'ANEXOS':
+                                if(this.isUsuario){//Usuario
+                                     datos1[0].SOLICITUD_USUARIO_ANEXOS = this.comentario;
+                                     alasql("UPDATE REGISTROS SET SOLICITUD_USUARIO_ANEXOS = ? WHERE FOLIO=?", [datos1[0].SOLICITUD_USUARIO, AsuntoJS.folio]);
+                                }else if(this.isAbogado){
+                                    console.log("Entre a is abogado en anexos")
+                                     datos1[0].SOLICITUD_USUARIO_ANEXOS ='';
+                                     datos1[0].COMENTARIOS_JURIDICO_ANEXOS += datos1[0].COMENTARIOS_JURIDICO_ANEXOS == "" ? this.comentario : "||" + this.comentario
+                                     datos1[0].BANDERA_COMENTARIOS_ANEXOS = 'true';
+                                     alasql("UPDATE REGISTROS SET COMENTARIOS_JURIDICO_ANEXOS =?, BANDERA_COMENTARIOS_ANEXOS =? WHERE FOLIO=?", [datos1[0].COMENTARIOS_JURIDICO_ANEXOS, 'true', AsuntoJS.folio]);
+                                }else{
+                                     datos1[0].SOLICITUD_USUARIO_ANEXOS ='';
+                                     datos1[0].COMENTARIOS_ANEXOS += datos1[0].COMENTARIOS_ANEXOS == "" ? this.comentario : "||" + this.comentario
+                                     datos1[0].BANDERA_COMENTARIOS_ANEXOS = 'true';
+                                     alasql("UPDATE REGISTROS SET COMENTARIOS_ANEXOS =?, BANDERA_COMENTARIOS_ANEXOS =? WHERE FOLIO=?", [datos1[0].COMENTARIOS_ANEXOS, 'true', AsuntoJS.folio]);
+                                     }
+                                break;
+                        }
+                        if(this.isUsuario){
+                            this.closeModal('Se ha guardado el motivo de la solicitud', 'Recuerda dar clic en el botón Enviar Solicitud para notificar al negociador')
+                            let actualizar = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                            if(!actualizar[0].BANDERA_SOLICITUD_MODIFICACION){
+                               actualizar[0].BANDERA_SOLICITUD_MODIFICACION = true;
+                               SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'REGISTROS', actualizar, actualizar[0].ROW)
+                            }                            
+                        }else{
+                            
+                            this.modalState('Se han guardado los comentarios', 'icon-rightgreen')
+                        }
+                        this.disabledBtn = true; //cambio DA
+                            
+                                     console.log("fuera del switchdatos1[0].SOLICITUD_USUARIO"+datos1[0].SOLICITUD_USUARIO)
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', base, datos1, datos1[0].ROW)
+                        this.emptyModalComent();  
+                    },
+                    emptyModalComent: function () {
+                        this.comentario = "";
+                        this.varModal = false;
+                    },
+                    saveModificacion: function (state, user) {
+                    console.log("ESTOY EN SAVE MODIFICACION")
+                        let modificacion = alasql("SELECT * FROM MODIFICACIONES LIMIT 1");
+                        let idMax = alasql("SELECT MAX(ID_MODIFICACION) as id FROM MODIFICACIONES");
+                        modificacion[0].ID_MODIFICACION = idMax[0].id + 1
+                        modificacion[0].ID_ASUNTO = AsuntoJS.folio
+                        modificacion[0].ESTADO = state
+                        modificacion[0].USUARIO = user
+                        modificacion[0].CORREO = sessionStorage.NB_CORREO
+                        modificacion[0].FECHA = moment(new Date()).format('DD/MM/YYYY')
+                        SpreadSheetJS.saveCatalogo('Datos_Contratos1', 'MODIFICACIONES', "ID_MODIFICACION", modificacion)
+
+                    },
+                    modalState: function (title, icon, msg = '') {
+                        console.log("modalState Asunto JS AQUI")
+                        this.$refs.confirmacion.abrir({
+                            titulo: title,
+                            mensaje: msg,
+                            icono: icon,
+                            btna: 'Aceptar',
+                            funcionAction: this.$refs.confirmacion.cerrar,
+                            close: true,
+                            mostrar: true
+                        });
+                    },
+                    closeModal: function (title, msg) {
+                        console.log("closeModal Asunto JS AQUI")
+                        this.$refs.notifica.abrir({//1er modal
+                            titulo: title,
+                            mensaje: msg,
+                            icono: 'icon-rightgreen',
+                            btna: 'Aceptar',
+                            funcionAction: this.$refs.confirmacion.cerrar,//2do modal
+                            close: true
+                        });
+
+                    },
+                    
+                    buscarContenido: function (folio) {
+                        console.log("Estoy en buscar contenido")
+                        /*
+                        this.isUsuario = vPage.puesto == 3 || vPage.puesto == 1 ? true : false;//usuario General
+                        this.isNegociador = vPage.puesto == 2 || vPage.puesto == 5 || vPage.puesto == 1 ? true : false;//Negociador
+                        this.isAbogado = vPage.puesto == 4 ? true : false;//abogado
+                        let uExperimentado = alasql("SELECT VALUE USUARIO_EXPERIMENTADO FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio])
+                        this.btnComentar = (this.isUsuario&& this.estado!='Finalizado'&&uExperimentado!='Sí')||(this.isNegociador&& (this.estado=='Con Negociador'||this.estado=='Pendiente')||(this.isAbogado&&this.estado=='Con Jurídico'))//agregueVD
+                        */
+                        this.showState(folio);
+                        
+                        this.btnReabrir = vPage.puesto == 2 || vPage.puesto == 5 || vPage.puesto == 1 ? true : false;
+                        
+                        let link= alasql("SELECT VALUE [Formato único tablas] FROM ASUNTOS WHERE ID=?", [AsuntoJS.folio])
+                        
+                        this.linkDescarga =link? "https://docs.google.com/document/d/"+link.match(/[-\w]{25,}/)[0]+"/export?format=doc":'';
+                         
+                        this.linkAnexo = alasql("SELECT VALUE Anexos FROM ASUNTOS WHERE ID=?", [AsuntoJS.folio])
+                        let auxFiles= alasql("SELECT * FROM ARCHIVOS WHERE SECCION='Anexos' and FOLIO=?",[AsuntoJS.folio])//cambio DA
+                        this.existArchivos=auxFiles.length!=0 //cambio DA
+                        this.btnFinish = (this.isNegociador&&(this.estado=='Con Negociador' || this.estado=='Pendiente'))||(this.isAbogado&&this.estado=='Con Jurídico');
+                        
+                        const items = alasql("SELECT * FROM SECCIONES WHERE ID_CONTRATO=?", [folio]);
+                        let datosGen = alasql("SELECT * Contrato FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio])
+                        let asignacionU = this.isUsuario?datosGen[0].USUARIO_ASIGNADO.includes('Usuario'):false
+                        let asignacionN = this.isNegociador?datosGen[0].USUARIO_ASIGNADO.includes('Negociador'):false
+           
+                        this.gps= datosGen[0]["GPS"];
+                        this.contratista= datosGen[0]["CONTRATISTA"];
+                        this.companyGroup= datosGen[0]["EMPRESA DEL GRUPO"];
+                        let carpetasArchivos = alasql("SELECT [Subdirección de SSJJ], Contrato FROM ASUNTOS WHERE ID=?", [AsuntoJS.folio])
+                        this.subdireccion = carpetasArchivos[0]["Subdirección de SSJJ"]
+                        this.contrato = carpetasArchivos[0].Contrato
+                        this.anexos = 'Anexos'
+                        this.fillFormat = this.isUsuario&& this.uExperimentado=='Sí' && this.estado=='Pendiente'?true:false;                        
+                        this.btnSendSolicitud = this.isUsuario&&this.estado!='Con Usuario'&&this.estado!='Finalizado'&& !this.fillFormat;
+                        this.btnGuardarCorrect = this.fillFormat||(this.isUsuario && (this.estado=='Con Usuario'||(this.estado=='En Revisión'&&asignacionU)))||(this.isNegociador && (this.estado=='Licitación/Adjudicación'||(this.estado=='En Revisión'&&asignacionN)))?true:false;  //agregueVD                    
+                        //this.subirarchivos = this.uExperimentado=='Sí' && this.estado=='Pendiente' ? true : false
+                        this.btnSendSSJJ = (this.isNegociador&&(this.estado=='Licitación/Adjudicación' || (this.estado=='En Revisión'&&asignacionN)))||(this.isUsuario&&this.estado=='En Revisión'&&asignacionU)
+                        this.btnSendComent = (this.isNegociador && (this.estado=='Pendiente'||this.estado=='Con Negociador')) || (this.isAbogado &&this.estado=='Con Jurídico')
+                        this.isBeforeLicitacion = (this.estado=="Pendiente"||this.estado=="Con Usuario"||this.estado=="Con Negociador");//agregueVD
+                        !this.isUsuario&&!this.isBeforeLicitacion? this.opciones.push('Responsable Negociador'):'';//agregueVD
+                        this.showBtnTablaU = this.isUsuario && (this.estado=='Con Usuario' || this.estado=='En Revisión' || (this.estado=='Pendiente' && this.uExperimentado=='Sí'))                     
+                        let comentarioAux;
+                        items.forEach((seccion, indx) => {
+                            items[indx].isSolicitud = seccion.TITULO.includes('R3SPONS4BL3')?true:false;   
+                            items[indx].TITULO = seccion.TITULO.replace(/[\d.\-:]+/g, '').trim(); 
+                            items[indx].isSolicitud? items[indx].TITULO = seccion.TITULO.replace('RSPONSBL','').trim(): '';
+                            !!items[indx].BANDERA_COMENTARIOS ? this.disabledBtn = true : !!items[indx].BANDERA_SOLICITUD ? this.disabledBtn = true : ''; //agregarDA
+                            comentarioAux = this.isBeforeLicitacion? items[indx].COMENTARIOS.split('||') : items[indx].COMENTARIOS_JURIDICO.split('||')
+                            items[indx].COMENTARIOS = comentarioAux[comentarioAux.length - 1]
+                            items[indx].textAreaSeccion = true;
+                            this.alert[indx]=false;                            
+                            items[indx]["ARCHIVO"] = alasql("SELECT * FROM ARCHIVOS WHERE FOLIO=? and SECCION=? and ESTATUS<>?", [AsuntoJS.folio, items[indx].TITULO, 'ELIMINADO'])
+                            
+                        });
+                        this.secciones = items;
+                                                
+                        this.cargaSolicitud();
+                        
+                        this.coordinadoresBBVA = alasql("SELECT * FROM COORDINADORES WHERE ID_CONTRATO=? and TIPO_COORDINADOR=?", [folio, "BBVA"]);
+                        this.coordinadoresContra = alasql("SELECT * FROM COORDINADORES WHERE ID_CONTRATO=? and TIPO_COORDINADOR=?", [folio, "Contratista"]);
+                        let fecha = alasql("SELECT [FECHA DE INICIO] as fechaIni,[FECHA DE TERMINO] as fechaFin FROM REGISTROS WHERE FOLIO=?", [folio]);
+
+                        this.fechaIni = { reglas: [v => !!v || 'Campo requerido'], respuesta: fecha[0].fechaIni, error: false, enable: true }
+                        this.fechaFin = { reglas: [v => !!v || 'Campo requerido'], respuesta: fecha[0].fechaFin, error: false, enable: true }
+
+                        this.asunto = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [folio])[0];
+                        //comentarioAux = this.asunto.COMENTARIOS_FECHAS.split('||')
+                        comentarioAux = this.isBeforeLicitacion? this.asunto.COMENT_DATOS.split('||'):this.asunto.COMENTARIOS_JURIDICO_DATOS.split('||');
+                        !!this.asunto.BANDERA_COMENT_DATOS ? this.disabledBtn = true : ''
+                        this.asunto.COMENT_DATOS = comentarioAux[comentarioAux.length - 1]
+                        
+                        !!this.asunto.BANDERA_COMENTARIOS_ANEXOS ? this.disabledBtn = true : ''
+                        //!!this.asunto.BANDERA_COMENT_FECHA ? this.disabledBtn = true : ''
+                        //!!this.asunto.BANDERA_COMENT_COORD ? this.disabledBtn = true : ''
+                        //this.asunto.COMENTARIOS_FECHAS = comentarioAux[comentarioAux.length - 1]
+
+                        //comentarioAux = this.asunto.COMENTARIOS_COORDINADORES.split('||')
+                        //this.asunto.COMENTARIOS_COORDINADORES = comentarioAux[comentarioAux.length - 1]
+                        comentarioAux = this.isBeforeLicitacion? this.asunto.COMENTARIOS_ANEXOS.split('||'):this.asunto.COMENTARIOS_JURIDICO_ANEXOS.split('||')
+                        this.asunto.COMENTARIOS_ANEXOS = comentarioAux[comentarioAux.length - 1]
+                        this.disabledSendSolicitud = this.asunto.BANDERA_SOLICITUD_MODIFICACION ?true : false
+                    },
+                    cargaSolicitud:function(){
+                       if(!this.isBeforeLicitacion&&this.estado){
+                           let datos = alasql("SELECT * FROM DATOS_LEGALES WHERE FOLIO=? LIMIT 1", [this.folio])[0];
+                           if(!!datos){
+                             this.datosLegales = datos;
+                             console.log('contrato '+this.datosLegales.NUMERO_CONTRATO)
+                             this.datosLegales.TIPO_DOC = datos.TIPO_DOC.split(',');
+                           }  
+                           let apoderados = alasql("SELECT * FROM APODERADOS WHERE FOLIO=? and EMPRESA='Empresa del grupo'", [this.folio]);
+                           apoderados.length==2?this.apoderadosEmpGrp=apoderados:apoderados.length==1?this.apoderadosEmpGrp.shift().unshift(apoderados[0]):'';
+                           apoderados = alasql("SELECT * FROM APODERADOS WHERE FOLIO=? and EMPRESA='Contratista'", [this.folio]);
+                           apoderados.length==2?this.apoderadosContr=apoderados:apoderados.length==1?this.apoderadosContr.shift().unshift(apoderados[0]):'';
+                           this.datosSolicitud={
+                               nfolio:this.folio,
+                               sd:this.subdireccion,
+                               cont:this.contrato,
+                               pnegociador:this.isNegociador};
+                               
+                      }
+                    },
+                    showState: function (folio) {
+                        this.estado = alasql("SELECT VALUE[Estado de asunto] FROM REGISTROS WHERE FOLIO=?", [folio]);
+                        this.abrir(this.estado);
+                    },
+                    newComent: function (bandera) {
+                        return bandera || 'Tienes un nuevo comentario';
+                    },
+                    prueba: function (ok) {
+                        console.log('Tienes un nuevo comentario ' + ok);
+                    },
+                    enableTextArea: function (tipo, indx1 = '') {
+                        switch (tipo) {
+                            case 'seccion':
+                                this.secciones[indx1].textAreaSeccion = !this.secciones[indx1].textAreaSeccion;
+                                break;
+                            case 'coord':
+                                this.coordEnable = !this.coordEnable;
+                                break;
+                            case 'fechas':
+                                this.fechaIni.enable = !this.fechaIni.enable;
+                                this.fechaFin.enable = !this.fechaFin.enable;
+                                break;
+                            case 'datos':
+                                this.enableDatos = !this.enableDatos;
+                                break;
+                        }
+                    },
+                    abrir: function (tipoModal) {
+                        let msj;
+                        switch (tipoModal) {
+                            case "sendComent":
+                                this.$refs.confirmacion.abrir({//1er modal
+                                    titulo: '¿Estás seguro de haber realizado todas los comentarios?',
+                                    mensaje: 'Se enviarán los comentarios al Usuario',
+                                    icono: 'img-alert',
+                                    btna: 'Aceptar',
+                                    funcionAction: this.sendNotificationUser,//2do modal
+                                    parametrosAction: '',
+                                    btnl: 'Cancelar',
+                                    close: true
+                                });
+                                break;
+                            case "sendCorrect":
+                                this.$refs.confirmacion.abrir({
+                                    titulo: '¿Estás seguro de haber realizado todas las correcciones?',
+                                    mensaje: 'Se enviarán las modificaciones realizadas',
+                                    icono: 'img-alert',
+                                    btna: 'Aceptar',
+                                    funcionAction: this.sendNotificationNegociador,
+                                    parametrosAction: '',
+                                    btnl: 'Cancelar',
+                                    close: true
+                                });
+                                break;
+                            case "saveCorrect":
+                                this.$refs.confirmacion.abrir({
+                                    titulo: '¿Deseas guardar los cambios?',
+                                    mensaje: 'Se guardarán todas las modificaciones realizadas',
+                                    icono: 'img-alert',
+                                    btna: 'Aceptar',
+                                    funcionAction: this.isNegociador?this.saveSolicitud:this.saveSecciones,//agregueVD
+                                    parametrosAction: '',
+                                    btnl: 'Cancelar',
+                                    close: true
+                                });
+                                break; 
+                             case "sendSolicitud":
+                                this.$refs.confirmacion.abrir({
+                                    titulo: '¿Estás seguro de haber realizado todas las solicitudes para las secciones que deseas cambiar?',
+                                    mensaje: 'Se enviarán las solicitudes al Negociador',
+                                    icono: 'img-alert',
+                                    btna: 'Aceptar',
+                                    funcionAction: this.sendSolicitudNeg,
+                                    parametrosAction: '',
+                                    btnl: 'Cancelar',
+                                    close: true
+                                });
+                                break; 
+                             case "sendSolicitudSSJJ":
+                                this.$refs.confirmacion.abrir({
+                                    titulo: '¿Estás seguro de haber llenado todos los datos requeridos en la solicitud?',
+                                    mensaje: 'Se enviará una notificación al abogado asignado.',
+                                    icono: 'img-alert',
+                                    btna: 'Aceptar',
+                                    funcionAction: this.sendSolicitudSSJJ,
+                                    parametrosAction: '',
+                                    btnl: 'Cancelar',
+                                    close: true
+                                });
+                                break;  
+                            case "finishReg":
+                                this.$refs.confirmacion.abrir({
+                                    titulo: '¿Estás seguro de enviar tu solicitud al negociador?',
+                                    mensaje: 'Se enviará la solicitud al Negociador para iniciar con el proceso de revisión',
+                                    icono: 'img-alert',
+                                    btna: 'Aceptar',
+                                    funcionAction: this.finishRegExp,
+                                    parametrosAction: '',
+                                    btnl: 'Cancelar',
+                                    close: true
+                                });
+                            break;
+                            case "finish":
+                                this.$refs.confirmacion.abrir({
+                                    titulo: '¿Estás seguro de finalizar el asunto?',
+                                    mensaje: 'Finalizar solo cuando se hayan validado y aprovado el contenido del asunto',//cambio DA
+                                    icono: 'img-alert',
+                                    btna: 'Aceptar',
+                                    funcionAction: this.isAbogado? this.finishAbogado: this.finishCase,
+                                    parametrosAction: '',
+                                    btnl: 'Cancelar',
+                                    close: true
+                                });
+                                break;
+                            case "Pendiente":
+                                msj = this.isUsuario ? this.uExperimentado=='Sí'?'El negociador esta en espera de que se finalice el registro':'Tu solicitud está siendo atendida por el Negociador' : this.isNegociador ? 'El usuario está en espera de comentarios' : ''
+                                this.modalState('Pendiente', 'icon-infobluedrack', msj);
+                                break;
+                            case "Con Usuario":
+                                msj = this.isUsuario ? 'Actualmente tienes comentarios del Negociador sin resolver' : this.isNegociador ? 'Los comentarios realizados estan en revision por el usuario' : ''
+                                this.modalState('Con Usuario', 'icon-alertYellow', msj);
+                                break;
+                            case "Con Negociador":
+                                msj = this.isUsuario ? 'Las modificaciones realizadas se encuentran en validación por el Negociador' : this.isNegociador ? 'El usuario realizó las modificaciones con base en los comentarios' : ''
+                                this.modalState('Con Negociador', 'icon-settings', msj);
+                                break;                            
+                            case "Con Jurídico":
+                                msj = this.isUsuario || this.isNegociador? 'Los datos del asunto se encuentran en validación por el Jurídico' : this.isAbogado ? 'El usuario y/o Negociador estan en espera de la validación del asunto' : ''
+                                this.modalState('Con Jurídico', 'icon-bascula', msj);
+                                break;
+                             case "En Revisión":
+                                msj = this.isUsuario || this.isNegociador? 'El estado se encuentra en Revisión validar si cuenta con comentarios sin resolver' : this.isNegociador ? 'El usuario y/o negociador está haciendo las correciones correspondientes' : ''
+                                this.modalState('En Revisión', 'icon-Revision', msj);
+                                break;
+                             case "Licitación/Adjudicación":
+                                msj = "El asunto se encuentra en en proceso de licitación/adjudicación"
+                                this.modalState('Licitación/Adjudicación', 'icon-licitacion', msj);
+                                break;
+                            case "Finalizado":
+                                msj = this.isUsuario ? 'Se han validado los cambios realizados, el asunto sera canalizado al siguiente proceso' : this.isNegociador ? 'El asunto se finalizó con éxito' : ''
+                                this.modalState('Finalizado', 'icon-rightgreen', msj);
+                                break;
+                        }
+                    },
+                    showInstrucciones:function(seccionTitulo, indx){
+                         this.alert[this.alert.indexOf(true)]=false
+                         this.instrucciones='Instrucciones para  el correcto llenado del Formato Único, detallar los siguientes puntos:         ';
+                         let consulta = alasql("Select VALUE PREGUNTAS from Contratos where SUBDIRECCION=? and TIPO_CONTRATO=? and SECCION=?",[this.subdireccion, this.contrato, seccionTitulo])
+                         consulta = '"'+consulta.replaceAll(',','","')+'"';
+                         consulta = alasql('Select *  from Preguntas where ID_PREGUNTA in('+consulta+')');          
+                         let contenido = consulta.forEach(p=>{
+                             this.instrucciones= p.DESCRIPCION==''?this.instrucciones+'<p>- '+p.PREGUNTA: this.instrucciones+'<p>- '+p.PREGUNTA+'<p>'+ p.DESCRIPCION;
+                         })
+                         this.alert[indx]=true
+                    },
+                    
+                    reabrirAsunto: function(){
+                        datos1 = alasql("SELECT * FROM REGISTROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        this.estado = datos1[0]['Estado de asunto'] = 'Con Negociador';
+                        SpreadSheetJS.updateCatalogo('Datos_Contratos1', 'REGISTROS', datos1, datos1[0].ROW)
+                         //this.closeModal('Se ha cambiado correctamente el asunto', '');
+                        //this.saveModificacion('Finalizado', 'Negociador')
+                        JS_Base_Generic.getContent("02_Asunto", "02_Asunto");
+                       
+                     },
+                     
+                    updateTables: function(aux){
+                        let datos1 = alasql("SELECT [Formato único],ID,Carpeta FROM ASUNTOS WHERE ID=?", [AsuntoJS.folio]);
+                        let secciones= alasql("SELECT LINK,TITULO,CONTENIDO FROM SECCIONES WHERE ID_CONTRATO=? and LINK<>''", [AsuntoJS.folio]);
+                        let imagenes = alasql("SELECT SECCION,DRIVE_ID FROM ARCHIVOS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        let fianzas = alasql("SELECT * FROM FIANZAS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        let seguros = alasql("SELECT * FROM SEGUROS WHERE FOLIO=?", [AsuntoJS.folio]);
+                        ArchivosJS.actualizarTablas(secciones,imagenes,datos1[0],aux,fianzas,seguros);
+                     },
+                     
+                     activarPestaña: function(titulo){
+                        console.log("entre a activar pestaña")
+                        this.contenidoP1 = 'Responsable Usuario' == titulo ?  true : false
+                     },
+                }
+            });
+        }
+    }
+      /*const type_Coord = ["BBVA","Contratista"];
+               this.coordinadores=type_Coord.map(tipo=>{
+                 let list_Coord = {};
+                 list_Coord.coord= alasql("SELECT * FROM COORDINADORES WHERE ID_CONTRATO=? and TIPO_COORDINADOR=?",[folio, tipo]);
+                 console.log("Lista de coordinadores: "+list_Coord.coord+" de "+tipo);
+                 list_Coord.name=tipo;
+                 return list_Coord;
+               })*/
+    /*{
+                const items =alasql("SELECT titulo1,contenido1,comentarios1,titulo2,contenido2,comentarios2,titulo3,contenido3,comentarios3,titulo4,contenido4,comentarios4,titulo5,contenido5,comentarios5,titulo6,contenido6,comentarios6,titulo7,contenido7,comentarios7,titulo8,contenido8,comentarios8 FROM ASUNTOS WHERE ID=?",[this.folio])
+               let secciones = [];
+               let titulos = [];
+               let contenidos = [];
+               let comentarios = [];
+               for (nprop in items[0]) {
+                   if (nprop.includes("titulo")){
+                      titulos.push(items[0][nprop]);
+                   } else if (nprop.includes("contenido")){
+                      contenidos.push(items[0][nprop]);
+                   } else if (nprop.includes("comentario")){
+                      comentarios.push(items[0][nprop]);
+                   }
+               }
+               for (n in titulos) {
+                   let seccion = {};
+                   seccion.titulo = titulos[n];
+                   seccion.contenido = contenidos[n];
+                   seccion.comentario = comentarios[n];
+                   secciones.push(seccion);
+               }
+               this.secciones = secciones;
+             }*/
+</script>
